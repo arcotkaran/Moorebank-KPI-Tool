@@ -1,13 +1,22 @@
-import streamlit as st
+"""
+Renders the Analysis-related tabs for the Moorebank KPI Dashboard.
+
+This module contains the functions to render:
+- Move Analysis Tab
+- Efficiency Analysis Tab
+- Yard Analysis Tab
+- Data Explorer Tab
+"""
+import datetime
+import re
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import datetime
-import pytz
-import re
+import streamlit as st
 
 
-def render_move_analysis_tab(moves_df_master, aest_tz):
+def render_move_analysis_tab(moves_df_master, aest_tz, color_palette):
     """Renders the Move Analysis tab for detailed move inspection."""
     st.header("Detailed Move Analysis")
     st.info(
@@ -64,14 +73,16 @@ def render_move_analysis_tab(moves_df_master, aest_tz):
         anomalies = filtered_moves_orig[filtered_moves_orig['anomaly']]
 
         st.write(
-            f"Found {len(anomalies)} anomalous moves (more than 3 standard deviations from rolling average).")
+            f"Found {len(anomalies)} anomalous moves (more than 3 standard "
+            "deviations from rolling average).")
         st.dataframe(anomalies[['ContainerMoveID', 'CHEID',
                      'OverallDurationMinutes', 'rolling_avg', 'rolling_std']])
 
     st.markdown("---")
 
     st.subheader("Move Cycle Time Breakdown")
-    st.info("Analyze the time taken for each segment of a move. This section is independent of the filters above.")
+    st.info("Analyze the time taken for each segment of a move. "
+            "This section is independent of the filters above.")
 
     cycle_col1, cycle_col2 = st.columns(2)
     with cycle_col1:
@@ -111,17 +122,22 @@ def render_move_analysis_tab(moves_df_master, aest_tz):
 
         # Using .loc to prevent SettingWithCopyWarning
         cycle_analysis_df.loc[:, 'Request to Assigned'] = (
-            cycle_analysis_df['AssignedTimestamp'] - cycle_analysis_df['ACMRTimestamp']).dt.total_seconds() / 60
+            cycle_analysis_df['AssignedTimestamp'] -
+            cycle_analysis_df['ACMRTimestamp']).dt.total_seconds() / 60
         cycle_analysis_df.loc[:, 'Assign to Pick'] = (
-            cycle_analysis_df['PickedTimestamp'] - cycle_analysis_df['AssignedTimestamp']).dt.total_seconds() / 60
+            cycle_analysis_df['PickedTimestamp'] -
+            cycle_analysis_df['AssignedTimestamp']).dt.total_seconds() / 60
         cycle_analysis_df.loc[:, 'Pick to Ground'] = (
-            cycle_analysis_df['GroundedTimestamp'] - cycle_analysis_df['PickedTimestamp']).dt.total_seconds() / 60
+            cycle_analysis_df['GroundedTimestamp'] -
+            cycle_analysis_df['PickedTimestamp']).dt.total_seconds() / 60
 
         duration_cols = ['Request to Assigned',
                          'Assign to Pick', 'Pick to Ground']
 
         cycle_analysis_df.dropna(subset=[
-                                 'ACMRTimestamp', 'AssignedTimestamp', 'PickedTimestamp', 'GroundedTimestamp'], inplace=True)
+            'ACMRTimestamp', 'AssignedTimestamp',
+            'PickedTimestamp', 'GroundedTimestamp'
+        ], inplace=True)
         for col in duration_cols:
             cycle_analysis_df[col] = pd.to_numeric(
                 cycle_analysis_df[col], errors='coerce')
@@ -135,9 +151,6 @@ def render_move_analysis_tab(moves_df_master, aest_tz):
             hourly_avg = cycle_analysis_df.groupby(
                 'Hour')[duration_cols].mean().reset_index()
 
-            color_palette = {'Request to Assigned': '#D6A1A1',
-                             'Assign to Pick': '#A1B5D6', 'Pick to Ground': '#A1D6B8'}
-
             if chart_type == "Bar Chart":
                 fig_cycle = go.Figure()
                 for col in duration_cols:
@@ -145,7 +158,7 @@ def render_move_analysis_tab(moves_df_master, aest_tz):
                         x=hourly_avg['Hour'],
                         y=hourly_avg[col],
                         name=col,
-                        marker_color=color_palette[col]
+                        marker_color=color_palette.get(col)
                     ))
                 fig_cycle.update_layout(
                     barmode='stack',
@@ -165,7 +178,7 @@ def render_move_analysis_tab(moves_df_master, aest_tz):
                         y=hourly_avg[col],
                         mode='lines+markers',
                         name=col,
-                        line_color=color_palette[col]
+                        line_color=color_palette.get(col)
                     ))
                 fig_cycle.update_layout(
                     title='Average Move Cycle Time Trends by Hour',
@@ -179,10 +192,12 @@ def render_move_analysis_tab(moves_df_master, aest_tz):
         st.info("Please select a valid date range.")
 
 
-def render_efficiency_analysis_tab(moves_df_time_filtered):
+def render_efficiency_analysis_tab(moves_df_time_filtered, color_palette):
     """Renders the Efficiency Analysis tab with CHE performance and idle time."""
     st.header("Efficiency Analysis")
-    st.info("This section provides additional metrics for deeper analysis of operational efficiency.")
+    st.info(
+        "This section provides additional metrics for deeper "
+        "analysis of operational efficiency.")
     if moves_df_time_filtered.empty:
         st.warning("No data available for the selected time range.")
     else:
@@ -191,15 +206,24 @@ def render_efficiency_analysis_tab(moves_df_time_filtered):
             subset=['AssignedTimestamp', 'CompletionTimestamp', 'CHEID']).copy()
         if not moves_df_exp.empty:
             moves_df_exp['AssignedToCompletionDurationMinutes'] = (
-                moves_df_exp['CompletionTimestamp'] - moves_df_exp['AssignedTimestamp']).dt.total_seconds() / 60
-            che_productivity = moves_df_exp.groupby('CHEID').agg(Total_Moves=(
-                'ContainerMoveID', 'count'), Avg_Assign_to_Complete_min=('AssignedToCompletionDurationMinutes', 'mean')).reset_index()
-            che_productivity['Avg_Assign_to_Complete_min'] = che_productivity['Avg_Assign_to_Complete_min'].round(
-                2)
+                moves_df_exp['CompletionTimestamp'] -
+                moves_df_exp['AssignedTimestamp']).dt.total_seconds() / 60
+            che_productivity = moves_df_exp.groupby('CHEID').agg(
+                Total_Moves=('ContainerMoveID', 'count'),
+                Avg_Assign_to_Complete_min=(
+                    'AssignedToCompletionDurationMinutes', 'mean')
+            ).reset_index()
+            che_productivity['Avg_Assign_to_Complete_min'] = che_productivity[
+                'Avg_Assign_to_Complete_min'].round(2)
             st.write("Productivity metrics per crane:")
             st.dataframe(che_productivity)
-            fig_che_perf_eff = px.bar(che_productivity, x='CHEID', y='Total_Moves', color='Avg_Assign_to_Complete_min', title='Total Moves and Average Assign-to-Completion Duration per CHE',
-                                      labels={'Total_Moves': 'Total Moves', 'Avg_Assign_to_Complete_min': 'Avg. Assign-to-Completion (min)'}, text='Total_Moves')
+            fig_che_perf_eff = px.bar(
+                che_productivity, x='CHEID', y='Total_Moves',
+                color='Avg_Assign_to_Complete_min',
+                title='Total Moves and Average Assign-to-Completion Duration per CHE',
+                labels={'Total_Moves': 'Total Moves',
+                        'Avg_Assign_to_Complete_min': 'Avg. Assign-to-Completion (min)'},
+                text='Total_Moves')
             fig_che_perf_eff.update_traces(textposition='outside')
             st.session_state.report_figs['CHE Assign-to-Completion'] = fig_che_perf_eff
             st.plotly_chart(fig_che_perf_eff, use_container_width=True)
@@ -214,17 +238,37 @@ def render_efficiency_analysis_tab(moves_df_time_filtered):
                     che_moves['next_assigned'] = che_moves['AssignedTimestamp'].shift(
                         -1)
                     che_moves['idle_time_minutes'] = (
-                        che_moves['next_assigned'] - che_moves['CompletionTimestamp']).dt.total_seconds() / 60
+                        che_moves['next_assigned'] -
+                        che_moves['CompletionTimestamp']).dt.total_seconds() / 60
                     total_idle_time = che_moves['idle_time_minutes'].sum()
                     total_active_time = che_moves['AssignedToCompletionDurationMinutes'].sum(
                     )
                     idle_time_data.append(
-                        {'CHEID': che, 'Total Idle Time (min)': total_idle_time, 'Total Active Time (min)': total_active_time})
+                        {'CHEID': che,
+                         'Total Idle Time (min)': total_idle_time,
+                         'Total Active Time (min)': total_active_time})
 
             if idle_time_data:
                 idle_time_df = pd.DataFrame(idle_time_data)
-                fig_idle = px.bar(idle_time_df, x='CHEID', y=[
-                                  'Total Active Time (min)', 'Total Idle Time (min)'], title="Crane Active vs. Idle Time", barmode='stack')
+                fig_idle = go.Figure()
+                fig_idle.add_trace(go.Bar(
+                    x=idle_time_df['CHEID'],
+                    y=idle_time_df['Total Active Time (min)'],
+                    name='Total Active Time (min)',
+                    marker_color=color_palette.get('Total Active Time (min)')
+                ))
+                fig_idle.add_trace(go.Bar(
+                    x=idle_time_df['CHEID'],
+                    y=idle_time_df['Total Idle Time (min)'],
+                    name='Total Idle Time (min)',
+                    marker_color=color_palette.get('Total Idle Time (min)')
+                ))
+                fig_idle.update_layout(
+                    barmode='stack',
+                    title="Crane Active vs. Idle Time",
+                    xaxis_title="CHEID",
+                    yaxis_title="Time (minutes)"
+                )
                 st.session_state.report_figs['Crane Idle Time'] = fig_idle
                 st.plotly_chart(fig_idle, use_container_width=True)
             else:
@@ -232,7 +276,8 @@ def render_efficiency_analysis_tab(moves_df_time_filtered):
 
         else:
             st.warning(
-                "No moves with both 'Assigned' and 'Completion' timestamps found for this analysis.")
+                "No moves with both 'Assigned' and 'Completion' timestamps found "
+                "for this analysis.")
         st.markdown("---")
         st.subheader("Move Type Efficiency")
         move_type_counts = moves_df_time_filtered['MoveType'].value_counts()
@@ -246,15 +291,20 @@ def render_efficiency_analysis_tab(moves_df_time_filtered):
         eff_col1.metric("Productive Move %", f"{productive_pct:.2f}%")
         eff_col2.metric("Housekeeping Move %", f"{housekeeping_pct:.2f}%")
         eff_col3.metric("Other Move %", f"{other_pct:.2f}%")
-        fig_move_eff = px.pie(move_type_counts, values=move_type_counts.values,
-                              names=move_type_counts.index, title="Overall Move Type Distribution", hole=0.3)
+        fig_move_eff = px.pie(
+            move_type_counts, values=move_type_counts.values,
+            names=move_type_counts.index, title="Overall Move Type Distribution",
+            hole=0.3, color=move_type_counts.index,
+            color_discrete_map={
+                name: color_palette.get(name) for name in move_type_counts.index
+            })
         fig_move_eff.update_traces(
             textposition='inside', textinfo='percent+label')
         st.session_state.report_figs['Move Type Efficiency Pie'] = fig_move_eff
         st.plotly_chart(fig_move_eff, use_container_width=True)
 
 
-def render_yard_analysis_tab(moves_df_master):
+def render_yard_analysis_tab(moves_df_master, continuous_scale):
     """Renders the Yard Analysis tab with heatmaps of yard activity."""
     st.header("Yard Layout and Congestion Analysis")
 
@@ -279,7 +329,7 @@ def render_yard_analysis_tab(moves_df_master):
             return match.groups()
         return None, None, None, None
 
-    def create_parallel_heatmap(df, title, all_bays, specific_rows=None):
+    def create_parallel_heatmap(df, all_bays, specific_rows=None):
         if df.empty:
             return None
 
@@ -302,14 +352,16 @@ def render_yard_analysis_tab(moves_df_master):
             x=pivot_df.columns,
             y=pivot_df.index,
             hoverongaps=False,
-            colorscale='Reds',
+            colorscale=continuous_scale,
             showscale=False))
 
         fig.update_layout(
             height=len(rows_to_display) * 35,
-            margin=dict(l=0, r=0, t=0, b=0),
-            yaxis=dict(showticklabels=False),
-            xaxis=dict(showticklabels=False)
+            margin={'l': 0, 'r': 0, 't': 0, 'b': 0},
+            yaxis={'showticklabels': False},
+            xaxis={'showticklabels': False},
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
         )
         return fig
 
@@ -341,8 +393,9 @@ def render_yard_analysis_tab(moves_df_master):
             heatmap_data['Bay'], errors='coerce').max())
         full_bay_range = range(min_bay_overall, max_bay_overall + 1)
     else:
-        move_counts = pd.DataFrame()
-        full_bay_range = range(1, 101)
+        move_counts = pd.DataFrame(columns=['Area', 'Bay', 'Row', 'counts'])
+        min_bay_overall, max_bay_overall = 1, 100
+        full_bay_range = range(min_bay_overall, max_bay_overall + 1)
 
     st.markdown("---")
 
@@ -351,7 +404,10 @@ def render_yard_analysis_tab(moves_df_master):
     for zone in YARD_ZONES:
         with name_col:
             st.markdown(
-                f'<div style="height: {len(zone["rows"])*35 if zone["rows"] else 50}px; display: flex; align-items: center; justify-content: flex-end; padding-right: 10px;"><b>{zone["name"]}</b></div>', unsafe_allow_html=True)
+                f'<div style="height: {len(zone["rows"])*35 if zone["rows"] else 50}px; '
+                'display: flex; align-items: center; justify-content: flex-end; '
+                f'padding-right: 10px;"><b>{zone["name"]}</b></div>',
+                unsafe_allow_html=True)
 
         with heat_col:
             area_df = pd.DataFrame()
@@ -365,7 +421,8 @@ def render_yard_analysis_tab(moves_df_master):
                     area_df = area_df_filtered
 
             fig = create_parallel_heatmap(
-                area_df, title=zone["name"], all_bays=full_bay_range, specific_rows=zone.get("rows") or None)
+                area_df, all_bays=full_bay_range,
+                specific_rows=zone.get("rows") or None)
 
             if fig:
                 st.plotly_chart(fig, use_container_width=True,
@@ -373,18 +430,21 @@ def render_yard_analysis_tab(moves_df_master):
             else:
                 height = len(zone["rows"]) * 35 if zone["rows"] else 50
                 st.markdown(
-                    f'<div style="height: {height}px; display: flex; align-items: center; justify-content: center; background-color: #262730; border: 1px dashed #444;">No Activity</div>', unsafe_allow_html=True)
+                    f'<div style="height: {height}px; display: flex; align-items: center; '
+                    'justify-content: center; border: 1px dashed #444;">'
+                    'No Activity</div>', unsafe_allow_html=True)
 
     fig_axis = go.Figure()
     fig_axis.update_layout(
-        height=30, margin=dict(l=0, r=0, t=0, b=30),
-        xaxis=dict(
-            range=[min(full_bay_range), max(full_bay_range)],
-            showticklabels=True,
-            title="Bay Number"
-        ),
-        yaxis=dict(showticklabels=False, visible=False),
-        plot_bgcolor='#0e1117', paper_bgcolor='#0e1117'
+        height=30, margin={'l': 0, 'r': 0, 't': 0, 'b': 30},
+        xaxis={
+            'range': [min(full_bay_range), max(full_bay_range)],
+            'showticklabels': True,
+            'title': "Bay Number"
+        },
+        yaxis={'showticklabels': False, 'visible': False},
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)'
     )
     st.plotly_chart(fig_axis, use_container_width=True,
                     config={'displayModeBar': False})
@@ -400,38 +460,48 @@ def render_data_explorer_tab(all_data):
     if table_to_view:
         df_to_filter = all_data[table_to_view].copy()
         st.subheader(f"Displaying Table: {table_to_view}")
-        st.info("Use the filters in the sidebar to narrow down the data in this table.")
+        st.info(
+            "Use the filters in the sidebar to narrow down the data in this table.")
 
         st.sidebar.header("Data Explorer Filters")
         for column in df_to_filter.columns:
             if df_to_filter[column].dtype == 'object' and 1 < df_to_filter[column].nunique() < 100:
                 unique_vals = sorted(df_to_filter[column].dropna().unique())
                 selected_val = st.sidebar.multiselect(
-                    f'Filter by {column}', options=unique_vals, default=unique_vals, key=f"de_{column}")
+                    f'Filter by {column}', options=unique_vals,
+                    default=unique_vals, key=f"de_{column}")
                 df_to_filter = df_to_filter[df_to_filter[column].isin(
                     selected_val)]
-            elif pd.api.types.is_numeric_dtype(df_to_filter[column]) and df_to_filter[column].nunique() > 1:
+            elif pd.api.types.is_numeric_dtype(df_to_filter[column]) and \
+                    df_to_filter[column].nunique() > 1:
                 min_val, max_val = float(df_to_filter[column].min()), float(
                     df_to_filter[column].max())
                 if min_val < max_val:
                     selected_range = st.sidebar.slider(
-                        f'Filter by {column}', min_val, max_val, (min_val, max_val), key=f"de_slider_{column}")
+                        f'Filter by {column}', min_val, max_val,
+                        (min_val, max_val), key=f"de_slider_{column}")
                     df_to_filter = df_to_filter[df_to_filter[column].between(
                         selected_range[0], selected_range[1])]
-            elif 'timestamp' in column.lower() and not pd.api.types.is_string_dtype(df_to_filter[column]) and df_to_filter[column].nunique() > 1:
+            elif 'timestamp' in column.lower() and \
+                    not pd.api.types.is_string_dtype(df_to_filter[column]) and \
+                    df_to_filter[column].nunique() > 1:
                 try:
                     min_date_de, max_date_de = df_to_filter[column].min(
                     ).date(), df_to_filter[column].max().date()
                     if min_date_de < max_date_de:
-                        selected_date = st.sidebar.date_input(f'Filter by {column} date', value=(
-                            min_date_de, max_date_de), min_value=min_date_de, max_value=max_date_de, key=f"de_date_{column}")
+                        selected_date = st.sidebar.date_input(
+                            f'Filter by {column} date', value=(
+                                min_date_de, max_date_de),
+                            min_value=min_date_de, max_value=max_date_de,
+                            key=f"de_date_{column}")
                         if len(selected_date) == 2:
                             start_date_de = pd.to_datetime(selected_date[0])
                             end_date_de = pd.to_datetime(
                                 selected_date[1]) + pd.Timedelta(days=1)
                             df_to_filter = df_to_filter[df_to_filter[column].between(
                                 start_date_de, end_date_de)]
-                except Exception:
+                except Exception:  # pylint: disable=broad-except
+                    # Ignore errors if date conversion fails for a column
                     pass
 
         st.dataframe(df_to_filter)

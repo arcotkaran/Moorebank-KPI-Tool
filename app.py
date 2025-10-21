@@ -42,6 +42,45 @@ APP_CONFIG = {
     "log_dir": r'C:\Users\arcotka\Documents\Logs\Output\Analysis_Reports'
 }
 
+# A modern, consistent color palette for charts using a professional, colorblind-friendly scheme
+COLOR_PALETTE = {
+    # Main categories
+    'Train Discharge': '#1f77b4',  # Muted Blue
+    'Train Export': '#ff7f0e',     # Safety Orange
+    'Truck Move': '#2ca02c',       # Cooked Asparagus Green
+    'Stack Move': '#d62728',       # Brick Red
+    'Other': '#9467bd',           # Muted Purple
+    'Load': '#ff7f0e',             # Safety Orange
+    'Discharge': '#1f77b4',       # Muted Blue
+
+    # Move Types for Efficiency Pie
+    'Productive': '#2ca02c',
+    'Housekeeping': '#ff7f0e',
+
+    # Cycle Times
+    'Request to Assigned': '#ff7f0e',
+    'Assign to Pick': '#2ca02c',
+    'Pick to Ground': '#1f77b4',
+
+    # Gantt Chart Phases
+    "Initial Wait": "#7f7f7f",      # Medium Gray
+    "Discharge Phase": "#1f77b4",
+    "Mid-Service Delay": "#d62728",
+    "Load Phase": "#ff7f0e",
+    "Final Wait": "#7f7f7f",
+
+    # Idle vs Active
+    'Total Active Time (min)': '#2ca02c',
+    'Total Idle Time (min)': '#d62728',
+
+    # General UI elements
+    'GMPH_line': '#d62728',
+    'MPH_line': '#1f77b4',
+}
+
+CONTINUOUS_SCALE = 'Blues'
+
+
 # --- Core Logic Functions ---
 
 
@@ -78,19 +117,6 @@ def setup_logging():
                 "Could not write to log file, logging to console only.", exc_info=True)
     return logger
 
-# --- Kaleido Engine Configuration Block (DISABLED) ---
-# try:
-#     logger.info("Initializing Kaleido engine...")
-#     import plotly.io as pio
-#     pio.kaleido.scope.chromium_args = ("--headless", "--no-sandbox",
-#                                        "--disable-dev-shm-usage", "--disable-gpu")
-#     logger.debug("Performing a test image export to validate Kaleido engine.")
-#     pio.to_image(go.Figure(), format="png")
-#     logger.info("Kaleido engine initialized successfully.")
-# except Exception as e:
-#     logger.error("Failed to initialize Kaleido engine: %s", e, exc_info=True)
-#     st.error(f"Failed to initialize PDF report engine (Kaleido): {e}.")
-
 
 @st.cache_resource
 def get_db_connection(db_path):
@@ -99,7 +125,8 @@ def get_db_connection(db_path):
         return sqlite3.connect(db_path, check_same_thread=False)
     except sqlite3.OperationalError as e:
         st.error(
-            f"Error connecting to database: {e}. Please ensure it is a valid SQLite file.")
+            f"Error connecting to database: {e}. "
+            "Please ensure it is a valid SQLite file.")
         return None
 
 
@@ -133,6 +160,7 @@ def load_all_data(_conn, _logger):
                    or 'ts' in c.lower()]
         for col in ts_cols:
             if col in df.columns:
+                # pylint: disable=broad-except
                 try:
                     df[col] = pd.to_datetime(df[col], errors='coerce')
                     if pd.api.types.is_datetime64_any_dtype(df[col]):
@@ -141,9 +169,11 @@ def load_all_data(_conn, _logger):
                                 'UTC').dt.tz_convert(aest_tz)
                         else:
                             df[col] = df[col].dt.tz_convert(aest_tz)
-                except Exception as e:  # Broad exception for various parsing errors
-                    _logger.warning("Could not convert column %s in table %s to datetime: %s",
-                                    col, df_name, e)
+                except Exception as e:
+                    _logger.warning(
+                        "Could not convert column %s in table %s to datetime: %s",
+                        col, df_name, e
+                    )
 
         if df_name.lower() == 'moves':
             if 'CompletionTimestamp' in df.columns and 'AssignedTimestamp' in df.columns:
@@ -255,6 +285,8 @@ def main():
         st.sidebar.warning("No timestamp data available to filter on.")
         moves_df_time_filtered = moves_df_master.copy()
         train_df = train_df_master.copy()
+        start_datetime = None
+        end_datetime = None
 
     if 'report_figs' not in st.session_state:
         st.session_state.report_figs = {}
@@ -266,23 +298,26 @@ def main():
      yard_analysis_tab, data_explorer_tab) = st.tabs(tab_list)
 
     with term_perf_tab:
-        render_terminal_performance_tab(moves_df_master, aest_tz)
+        render_terminal_performance_tab(
+            moves_df_master, aest_tz, COLOR_PALETTE)
 
     with overview_tab:
-        render_overview_tab(moves_df_time_filtered)
+        render_overview_tab(moves_df_time_filtered, COLOR_PALETTE)
 
     with train_perf_tab:
         render_train_performance_tab(train_df, moves_df_master, reseats_df_master,
-                                     start_datetime, end_datetime)
+                                     start_datetime, end_datetime, COLOR_PALETTE,
+                                     CONTINUOUS_SCALE)
 
     with move_analysis_tab:
-        render_move_analysis_tab(moves_df_master, aest_tz)
+        render_move_analysis_tab(moves_df_master, aest_tz, COLOR_PALETTE)
 
     with efficiency_tab:
-        render_efficiency_analysis_tab(moves_df_time_filtered)
+        render_efficiency_analysis_tab(
+            moves_df_time_filtered, COLOR_PALETTE)
 
     with yard_analysis_tab:
-        render_yard_analysis_tab(moves_df_master)
+        render_yard_analysis_tab(moves_df_master, CONTINUOUS_SCALE)
 
     with data_explorer_tab:
         render_data_explorer_tab(all_data)
